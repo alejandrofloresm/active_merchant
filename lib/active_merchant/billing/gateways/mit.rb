@@ -145,6 +145,13 @@ module ActiveMerchant #:nodoc:
         true
       end
 
+      def extract_mit_responses_from_transcript(transcript)
+        groups = transcript.scan(/reading \d+ bytes(.*?)read \d+ bytes/m)
+        groups.map do |group|
+          group.first.scan(/-> "(.*?)"/).flatten.map(&:strip).join('')
+        end
+      end
+
       def scrub(transcript)
         ret_transcript = transcript
         auth_origin = ret_transcript[/<authorization>(.*?)<\/authorization>/, 1]
@@ -182,15 +189,10 @@ module ActiveMerchant #:nodoc:
           ret_transcript = ret_transcript.gsub(/<refund>(.*?)<\/refund>/, ref_tagged)
         end
 
-        res_origin = ret_transcript[/#{Regexp.escape('reading ')}(.*?)#{Regexp.escape('read')}/m, 1]
-        loop do
-          break if res_origin.nil?
-
-          resp_origin = res_origin[/#{Regexp.escape('"')}(.*?)#{Regexp.escape('"')}/m, 1]
-          resp_decrypted = decrypt(resp_origin, @options[:key_session])
-          ret_transcript[/#{Regexp.escape('reading ')}(.*?)#{Regexp.escape('read')}/m, 1] = resp_decrypted
-          ret_transcript = ret_transcript.sub('reading ', 'response: ')
-          res_origin = ret_transcript[/#{Regexp.escape('reading ')}(.*?)#{Regexp.escape('read')}/m, 1]
+        groups = extract_mit_responses_from_transcript(transcript)
+        groups.each do |group|
+          group_decrypted = decrypt(group, @options[:key_session])
+          ret_transcript = ret_transcript.gsub("Conn close", "\n" + group_decrypted  + "\nConn close")
         end
 
         ret_transcript
